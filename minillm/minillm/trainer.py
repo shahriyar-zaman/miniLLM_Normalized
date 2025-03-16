@@ -39,6 +39,35 @@ from utils import print_rank, save_rank, get_rank, all_gather, save_parallel
 from rouge_metric import compute_metrics
 
 
+def perception(logits, epsilon=1e-5, dims=(1,)):
+    """
+    Perform "Perception" normalization on logits. Allows one or multiple dims.
+
+    Parameters:
+    -----------
+    logits  : torch.Tensor 
+        A tensor of shape (B, S, V) or similar. B = batch size, 
+        S = sequence length, V = vocab size (or some other dimension).
+    epsilon : float 
+        A small constant to avoid division by zero in normalization.
+    dims    : int or tuple of ints 
+        The dimension(s) along which to compute mean and variance. 
+        If a tuple, normalization is applied sequentially over each dim.
+
+    Returns:
+    --------
+    torch.Tensor
+        Normalized logits along the specified dimension(s).
+    """
+    if isinstance(dims, int):
+        dims = (dims,)
+    x = logits
+    for dim in dims:
+        mean = torch.mean(x, dim=dim, keepdim=True)
+        var  = torch.var(x, dim=dim, keepdim=True, unbiased=False)
+        x = (x - mean) / torch.sqrt(var + epsilon)
+    return x
+
 class PPOTrainer():
     """
     RL model trainer with an `accelerate` based backend
@@ -206,6 +235,8 @@ class PPOTrainer():
         )
 
         logits = outputs.logits
+        logits = perception(logits, dims=(1, -1))
+
         logits = logits / self.args.temperature
 
         start = query_ids.size(1) - 1
